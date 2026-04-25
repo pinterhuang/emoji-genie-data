@@ -60,6 +60,16 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Search tags (Traditional Chinese keywords)."
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["free", "pro"],
+          "description": "Free entries appear for everyone; pro entries require the unlock IAP. Defaults to free."
+        },
+        "availableFrom": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "ISO date. Hidden by the App until that date passes — used for fully-automated scheduled drops."
         }
       }
     }

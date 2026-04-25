@@ -90,31 +90,29 @@ jsDelivr 對 `@main` 分支預設快取 12–24 小時。若要立刻刷新：
 ## 本機開發
 
 ```bash
-node scripts/validate.js                                    # 驗證 bundle
-node scripts/bump-version.js                                # 手動 bump（一般 CI 自動）
-node scripts/promote-from-reserve.js --count 100 --dry-run  # 預覽月度釋出
-node scripts/promote-from-reserve.js --count 100            # 真的釋出 100 筆
-node scripts/promote-from-reserve.js --count 30 --category festival  # 節日定向釋出
-python3 scripts/build-mega-bundle.py                        # 從 GitHub 資料源重建（首次或重大刷新時）
+node scripts/validate.js                  # 驗證 bundle
+node scripts/bump-version.js              # 手動 bump（一般 CI 自動）
+python3 scripts/build-mega-bundle.py      # 從 GitHub 資料源重建（首次/大刷新用）
 ```
 
 JS scripts 零依賴；`build-mega-bundle.py` 需要 Python 3 + 預先下載 `/tmp/emoticon_dict.json` 與 `/tmp/kao-utf8.json`（見 script 內註解）。
 
-## 內容架構
+## 自動週更機制
 
-| 檔案 | 用途 | 大小 |
-|---|---|---|
-| `kaomoji-bundle.json` | App 透過 jsDelivr 抓的「正式上架」內容 | ~0.7 MB |
-| `reserve.json` | 儲備池，**App 不抓**，僅供 `promote-from-reserve.js` 排程釋出 | ~7 MB |
+整個 `kaomoji-bundle.json` 包含 **62,430 筆**：
 
-初始 5,126 筆已上架，儲備池 57,304 筆排隊中。每月跑一次：
-```bash
-node scripts/promote-from-reserve.js --count 100
-git add -A && git commit -m "feat: 月度新增 100 筆顏文字"
-git push
-```
+- **9,375 筆**：`availableFrom` 未設置 → App 啟動就看得到
+- **53,055 筆**：每筆都標記了 `availableFrom: YYYY-MM-DD` → App 端比對「今天 ≥ availableFrom」才顯示
 
-CI 自動把 bundle 版本號 +1、purge jsDelivr 快取、打 release tag。
+排程細節：
+- 起始日：產出 bundle 後的下一個週一
+- 週期：每週週一解鎖一批
+- 數量：平均每週約 102 筆，跨類別均衡分佈
+- 跨度：520 週（10 年）
+
+**你不需要做月度釋出 / 週度釋出 / 任何手動操作**。一次性產生這份 bundle、push 到 GitHub，App 用戶就會自動看到內容隨時間滴入。
+
+要重新洗牌排程（例如改變起始日、改回月更、加入節日定向）只要重新跑 `build-mega-bundle.py` 並 commit 即可。
 
 ## 授權
 

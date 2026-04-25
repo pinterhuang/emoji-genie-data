@@ -24,6 +24,7 @@ Usage:
 import json
 import re
 import hashlib
+import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -190,11 +191,16 @@ def is_acceptable(text: str) -> bool:
     return True
 
 
-# Per-category caps for the **initial release** bundle.
-# Aim: ~5000 total kaomojis distributed across 27 categories.
-# Anything beyond the cap is parked in `reserve.json` for future monthly OTA drops.
-CATEGORY_CAP = 220
-MISC_CAP = 350
+# Per-category caps for the **initial release** (immediately visible).
+# Aim: ~10,000 total kaomojis distributed across 27 categories.
+CATEGORY_CAP = 420
+MISC_CAP = 700
+
+# Schedule for the rest: spread evenly across WEEKLY_DROP_WEEKS weeks,
+# starting from the first Monday >= today + 7 days.
+# Each kaomoji gets an `availableFrom` date so the App auto-unveils on schedule.
+# 10 years × 52 weeks = 520 weekly drops.
+WEEKLY_DROP_WEEKS = 520
 
 
 def main():
@@ -300,31 +306,60 @@ def main():
     for item in out_kaomojis:
         by_cat[item["categoryId"]].append(item)
 
-    capped: list[dict] = []
-    reserved: list[dict] = []
+    capped: list[dict] = []      # availableFrom = None (immediate)
+    scheduled: list[dict] = []   # availableFrom = future Mondays
     for cat, items in by_cat.items():
         # Score: more tags = higher; shorter text = higher; ties broken by text.
-        # Top-N go into the initial release; the rest are parked in the reserve pool.
+        # Top-N go to immediate release; the rest are scheduled across weekly drops.
         items.sort(key=lambda x: (-len(x["tags"]), len(x["text"]), x["text"]))
         cap = MISC_CAP if cat == "misc" else CATEGORY_CAP
         capped.extend(items[:cap])
-        reserved.extend(items[cap:])
+        scheduled.extend(items[cap:])
 
-    # Stable IDs based on hash of text — survives reorderings, hash collisions astronomically unlikely
+    # Compute weekly drop dates: first Monday >= today + 7 days, then +7d each step.
+    today = datetime.date.today()
+    days_until_monday = (7 - today.weekday()) % 7 or 7  # at least 7 days out
+    first_drop = today + datetime.timedelta(days=days_until_monday)
+    drop_dates: list[str] = [
+        (first_drop + datetime.timedelta(weeks=i)).isoformat()
+        for i in range(WEEKLY_DROP_WEEKS)
+    ]
+
+    # Distribute scheduled entries round-robin across drop dates so every week gets
+    # a balanced mix of categories (not 90 happy then 90 sad).
+    # Shuffle within each category by hash of id for determinism.
+    scheduled.sort(key=lambda x: hashlib.sha1(x["text"].encode("utf-8")).hexdigest())
+    weekly_count = max(1, len(scheduled) // WEEKLY_DROP_WEEKS)
+    for idx, item in enumerate(scheduled):
+        week_idx = min(idx // weekly_count, len(drop_dates) - 1)
+        item["availableFrom"] = drop_dates[week_idx]
+    print(f"\nScheduled drops:")
+    print(f"  First drop date: {drop_dates[0]}")
+    print(f"  Last drop date:  {drop_dates[-1]}")
+    print(f"  Weeks of content: {WEEKLY_DROP_WEEKS}")
+    print(f"  Avg per week: ~{len(scheduled) // max(WEEKLY_DROP_WEEKS, 1)}")
+
+    # Stable IDs based on hash of text — survives reorderings, hash collisions astronomically unlikely.
+    # Combine immediate + scheduled into a single output list. The App's gated() filter
+    # honors availableFrom client-side, so a single bundle is enough.
     final = []
     used_ids = set()
-    for item in capped:
+    all_items = capped + scheduled
+    for item in all_items:
         h = hashlib.sha1(item["text"].encode("utf-8")).hexdigest()[:10]
         kid = f"e{h}"
         if kid in used_ids:
             continue
         used_ids.add(kid)
-        final.append({
+        entry = {
             "id": kid,
             "t": item["text"],
             "c": item["categoryId"],
             "k": item["tags"],
-        })
+        }
+        if "availableFrom" in item:
+            entry["availableFrom"] = item["availableFrom"]
+        final.append(entry)
 
     # Per-category breakdown
     from collections import Counter
@@ -357,39 +392,22 @@ def main():
     }
 
     OUT.write_text(json.dumps(bundle, ensure_ascii=False, indent=2) + "\n")
+
+    # Stats
+    immediate = sum(1 for k in final if "availableFrom" not in k)
+    scheduled_count = len(final) - immediate
     print(f"\n✓ Wrote {OUT}")
     print(f"  Total kaomojis: {len(final)}")
+    print(f"    Immediately visible: {immediate}")
+    print(f"    Scheduled future:    {scheduled_count}")
     print(f"  Total categories: {len(final_categories)}")
     print(f"  File size: {OUT.stat().st_size / 1024 / 1024:.2f} MB")
 
-    # Reserve pool: the kaomojis we held back for future OTA drops.
-    # Each entry already has its hash-based id, so a future scheduled bundle
-    # can move items from reserve.json → kaomoji-bundle.json without renaming.
-    if reserved:
-        reserve_final: list[dict] = []
-        seen = set()
-        for item in reserved:
-            h = hashlib.sha1(item["text"].encode("utf-8")).hexdigest()[:10]
-            kid = f"e{h}"
-            if kid in seen:
-                continue
-            seen.add(kid)
-            reserve_final.append({
-                "id": kid,
-                "t": item["text"],
-                "c": item["categoryId"],
-                "k": item["tags"],
-            })
-        reserve_path = ROOT / "reserve.json"
-        reserve_payload = {
-            "note": "Reserved kaomojis for future monthly OTA drops. Not consumed by the App directly.",
-            "count": len(reserve_final),
-            "kaomojis": reserve_final,
-        }
-        reserve_path.write_text(json.dumps(reserve_payload, ensure_ascii=False, indent=2) + "\n")
-        print(f"\n✓ Wrote {reserve_path}")
-        print(f"  Reserved entries: {len(reserve_final)}")
-        print(f"  File size: {reserve_path.stat().st_size / 1024 / 1024:.2f} MB")
+    # Clean up reserve.json from the previous design (no longer used).
+    legacy = ROOT / "reserve.json"
+    if legacy.exists():
+        legacy.unlink()
+        print(f"  Removed legacy {legacy.name}")
 
 
 if __name__ == "__main__":

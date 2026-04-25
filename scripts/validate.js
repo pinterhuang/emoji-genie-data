@@ -87,6 +87,14 @@ for (const k of bundle.kaomojis) {
       fail(`Kaomoji "${k.id}" has invalid tags`);
     }
   }
+  if ('tier' in k && k.tier !== 'free' && k.tier !== 'pro') {
+    fail(`Kaomoji "${k.id}" has invalid tier "${k.tier}" (must be "free" or "pro")`);
+  }
+  if ('availableFrom' in k) {
+    if (typeof k.availableFrom !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(k.availableFrom)) {
+      fail(`Kaomoji "${k.id}" has invalid availableFrom "${k.availableFrom}" (must be YYYY-MM-DD)`);
+    }
+  }
 }
 
 if (process.exitCode === 1) {
