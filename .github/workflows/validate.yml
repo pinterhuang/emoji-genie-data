@@ -1,0 +1,35 @@
+name: Validate bundle
+on:
+  pull_request:
+    paths:
+      - "kaomoji-bundle.json"
+      - "schema.json"
+      - "scripts/**"
+      - ".github/workflows/validate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "kaomoji-bundle.json"
+      - "schema.json"
+      - "scripts/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run validation
+        run: node scripts/validate.js
+      - name: Reminder to bump version (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          BASE_VER=$(git show origin/${{ github.base_ref }}:kaomoji-bundle.json 2>/dev/null | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>console.log(JSON.parse(d).version))" || echo "0")
+          PR_VER=$(node -e "console.log(require('./kaomoji-bundle.json').version)")
+          if [ "$PR_VER" -le "$BASE_VER" ]; then
+            echo "::warning::PR bundle version ($PR_VER) is not newer than base ($BASE_VER). The auto-release workflow will bump it on merge, or you can run \`node scripts/bump-version.js\` manually."
+          else
+            echo "✓ Version bumped: $BASE_VER → $PR_VER"
+          fi

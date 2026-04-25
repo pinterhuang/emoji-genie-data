@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pinterhuang/emoji-genie-data/blob/main/schema.json",
+  "title": "Emoji Genie Kaomoji Bundle",
+  "type": "object",
+  "required": ["version", "categories", "kaomojis"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing bundle version. The App only updates when the fetched version is strictly greater than the cached one."
+    },
+    "publishedAt": {
+      "type": "string",
+      "format": "date",
+      "description": "Optional ISO date for human reference; not consumed by the App."
+    },
+    "categories": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/category" }
+    },
+    "kaomojis": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/kaomoji" }
+    }
+  },
+  "$defs": {
+    "category": {
+      "type": "object",
+      "required": ["id", "name", "icon", "order"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+        "name": { "type": "string", "minLength": 1 },
+        "icon": { "type": "string", "minLength": 1 },
+        "order": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "kaomoji": {
+      "type": "object",
+      "required": ["id", "t", "c"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Stable unique identifier. Never reuse an id for a different kaomoji — pin/usage stats are keyed on this."
+        },
+        "t": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The kaomoji text itself."
+        },
+        "c": {
+          "type": "string",
+          "description": "Category id. Must reference an entry in `categories`."
+        },
+        "k": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Search tags (Traditional Chinese keywords)."
+        }
+      }
+    }
+  }
+}

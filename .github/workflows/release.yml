@@ -1,0 +1,63 @@
+name: Auto-release on data change
+on:
+  push:
+    branches: [main]
+    paths:
+      - "kaomoji-bundle.json"
+
+permissions:
+  contents: write
+
+jobs:
+  bump-and-tag:
+    runs-on: ubuntu-latest
+    # Skip when the commit was already a bump from this workflow.
+    if: ${{ !contains(github.event.head_commit.message, '[skip-bump]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Detect content change vs previous tag
+        id: changed
+        run: |
+          # If HEAD commit already updated `version`, do nothing.
+          PREV_VER=$(git show HEAD~1:kaomoji-bundle.json 2>/dev/null | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>console.log(JSON.parse(d).version))" || echo "0")
+          CUR_VER=$(node -e "console.log(require('./kaomoji-bundle.json').version)")
+          if [ "$CUR_VER" -gt "$PREV_VER" ]; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version was already bumped in this commit ($PREV_VER → $CUR_VER); skipping."
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Bump version
+        if: steps.changed.outputs.changed == 'true'
+        run: node scripts/bump-version.js
+
+      - name: Validate post-bump
+        if: steps.changed.outputs.changed == 'true'
+        run: node scripts/validate.js
+
+      - name: Commit + tag
+        if: steps.changed.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          NEW_VER=$(node -e "console.log(require('./kaomoji-bundle.json').version)")
+          git add kaomoji-bundle.json
+          git commit -m "chore: bump bundle to v${NEW_VER} [skip-bump]"
+          git tag "v${NEW_VER}"
+          git push origin main
+          git push origin "v${NEW_VER}"
+
+      - name: Purge jsDelivr cache (best effort)
+        if: steps.changed.outputs.changed == 'true'
+        continue-on-error: true
+        run: |
+          curl -sS "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/kaomoji-bundle.json" || true
