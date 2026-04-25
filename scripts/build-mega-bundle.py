@@ -403,6 +403,39 @@ def main():
     print(f"  Total categories: {len(final_categories)}")
     print(f"  File size: {OUT.stat().st_size / 1024 / 1024:.2f} MB")
 
+    # ---------------------------------------------------------------------
+    # APK builtin: 5,000 entries that ship inside the APK and are visible to
+    # the FREE tier without any network access. Pro users see these PLUS the
+    # full CDN bundle (deduplicated client-side by id).
+    # ---------------------------------------------------------------------
+    APK_TARGET = 5000
+    builtin_immediate = [k for k in final if "availableFrom" not in k]
+    apk_subset = builtin_immediate[:APK_TARGET]
+
+    # Carry over the original 433 hand-curated entries (h001/c001 etc.) so the
+    # free experience keeps the curated category exemplars even if their hash
+    # IDs would also appear in the auto-generated set. We re-assert their
+    # hand-picked tags to preserve search quality.
+    curated = builtin["kaomojis"]
+    curated_by_text = {k["t"]: k for k in curated}
+    apk_final: list[dict] = list(curated)
+    seen_text = set(curated_by_text.keys())
+    for entry in apk_subset:
+        if len(apk_final) >= APK_TARGET: break
+        if entry["t"] in seen_text: continue
+        apk_final.append(entry)
+        seen_text.add(entry["t"])
+
+    apk_bundle = {
+        "version": 1,
+        "categories": final_categories,
+        "kaomojis": apk_final,
+    }
+    APP_BUILTIN.write_text(json.dumps(apk_bundle, ensure_ascii=False, indent=2) + "\n")
+    print(f"\n✓ Wrote {APP_BUILTIN}")
+    print(f"  APK builtin entries: {len(apk_final)} (target {APK_TARGET})")
+    print(f"  File size: {APP_BUILTIN.stat().st_size / 1024 / 1024:.2f} MB")
+
     # Clean up reserve.json from the previous design (no longer used).
     legacy = ROOT / "reserve.json"
     if legacy.exists():
