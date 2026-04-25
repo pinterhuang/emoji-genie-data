@@ -316,10 +316,12 @@ def main():
         capped.extend(items[:cap])
         scheduled.extend(items[cap:])
 
-    # Compute weekly drop dates: first Monday >= today + 7 days, then +7d each step.
-    today = datetime.date.today()
-    days_until_monday = (7 - today.weekday()) % 7 or 7  # at least 7 days out
-    first_drop = today + datetime.timedelta(days=days_until_monday)
+    # Compute weekly drop dates. We anchor the FIRST drop to a fixed early-April date
+    # in the past so that a freshly-upgraded Pro user immediately sees several weeks
+    # of "past" drops on top of the always-immediate pool — this gives upgrades a
+    # tangible "I just got something new" feeling, even though the user actually
+    # received content that's been queued for months.
+    first_drop = datetime.date(2026, 4, 1)
     drop_dates: list[str] = [
         (first_drop + datetime.timedelta(weeks=i)).isoformat()
         for i in range(WEEKLY_DROP_WEEKS)
@@ -374,15 +376,19 @@ def main():
     cats_by_id = {c["id"]: c for c in builtin_categories}
     extra_cats = [
         {"id": "festival", "name": "節日",   "icon": "🎉", "order": 25},
-        {"id": "internet", "name": "網路梗", "icon": "🌐", "order": 26},
     ]
     for c in extra_cats:
         if c["id"] not in cats_by_id:
             cats_by_id[c["id"]] = c
+    # Drop the empty "internet" category if it sneaks in from older builtin
+    cats_by_id.pop("internet", None)
     # Push misc to the end if present
     if "misc" in cats_by_id:
         cats_by_id["misc"]["order"] = 99
     final_categories = sorted(cats_by_id.values(), key=lambda c: c["order"])
+
+    # Drop any kaomoji entries assigned to the removed `internet` category.
+    final = [k for k in final if k["c"] != "internet"]
 
     bundle = {
         "version": 3,
@@ -416,15 +422,23 @@ def main():
     # free experience keeps the curated category exemplars even if their hash
     # IDs would also appear in the auto-generated set. We re-assert their
     # hand-picked tags to preserve search quality.
-    curated = builtin["kaomojis"]
-    curated_by_text = {k["t"]: k for k in curated}
+    curated = [k for k in builtin["kaomojis"] if k["c"] != "internet"]
     apk_final: list[dict] = list(curated)
-    seen_text = set(curated_by_text.keys())
+    seen_text = {k["t"] for k in curated}
     for entry in apk_subset:
         if len(apk_final) >= APK_TARGET: break
         if entry["t"] in seen_text: continue
         apk_final.append(entry)
         seen_text.add(entry["t"])
+
+    # Force-include every `festival` entry into the APK builtin so the free tier
+    # gets seasonal coverage (春節/中秋/聖誕 等) without needing OTA. Festival
+    # is small (100 entries) — promoting it has negligible APK size impact.
+    festival_in_cdn = [k for k in final if k["c"] == "festival"]
+    for fest in festival_in_cdn:
+        if fest["t"] in seen_text: continue
+        apk_final.append(fest)
+        seen_text.add(fest["t"])
 
     apk_bundle = {
         "version": 1,
